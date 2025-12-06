@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 환경 변수
+.env
+.env.local
+
+# 로그
+*.log
+logs/
+
+# 데이터 (선택적 - GitHub에 저장하려면 제외)
+# data/*.json
+# data/*.csv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 임시 파일
+*.tmp
+*.bak
+*.cache
+
