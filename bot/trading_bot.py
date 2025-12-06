@@ -11,13 +11,24 @@ from pathlib import Path
 # .env 파일 로드
 try:
     from dotenv import load_dotenv
-    # 프로젝트 루트에서 .env 파일 찾기
-    env_path = Path(__file__).parent.parent / '.env'
-    if env_path.exists():
-        load_dotenv(env_path, override=True)
-        print(f"✅ .env 파일 로드됨: {env_path}")
-    else:
-        # 루트에 없으면 현재 디렉토리에서 찾기
+    # 여러 위치에서 .env 파일 찾기
+    base_path = Path(__file__).parent.parent
+    env_paths = [
+        base_path / '.env',  # 프로젝트 루트
+        base_path / 'btc_analysis' / '.env',  # btc_analysis 폴더
+        Path('.env'),  # 현재 디렉토리
+    ]
+    
+    env_loaded = False
+    for env_path in env_paths:
+        if env_path.exists():
+            load_dotenv(env_path, override=True)
+            print(f"✅ .env 파일 로드됨: {env_path}")
+            env_loaded = True
+            break
+    
+    if not env_loaded:
+        # 마지막으로 기본 로드 시도
         load_dotenv(override=True)
         print("⚠️  .env 파일을 찾지 못했습니다. 환경 변수만 사용합니다.")
 except ImportError:
@@ -318,33 +329,78 @@ class TradingEngine:
     
     def __init__(self):
         self.portfolio = DataStore.get_portfolio()
-        if not self.portfolio:
-            if Config.TRADING_MODE == 'LIVE':
-                # LIVE 모드: 실제 잔고 가져오기
-                try:
-                    import pyupbit
-                    if Config.UPBIT_ACCESS_KEY and Config.UPBIT_SECRET_KEY:
-                        upbit = pyupbit.Upbit(Config.UPBIT_ACCESS_KEY, Config.UPBIT_SECRET_KEY)
-                        krw_balance = upbit.get_balance('KRW')
-                        initial_capital = float(krw_balance) if krw_balance else 0
-                        print(f"💰 실제 잔고: {initial_capital:,.0f}원")
+        
+        # LIVE 모드에서는 항상 실제 잔고를 가져옴
+        if Config.TRADING_MODE == 'LIVE':
+            try:
+                import pyupbit
+                if Config.UPBIT_ACCESS_KEY and Config.UPBIT_SECRET_KEY:
+                    upbit = pyupbit.Upbit(Config.UPBIT_ACCESS_KEY, Config.UPBIT_SECRET_KEY)
+                    krw_balance = upbit.get_balance('KRW')
+                    actual_cash = float(krw_balance) if krw_balance else 0
+                    
+                    # 실제 보유 코인 정보 가져오기
+                    balances = upbit.get_balances()
+                    actual_positions = {}
+                    for balance in balances:
+                        currency = balance['currency']
+                        if currency == 'KRW':
+                            continue
+                        balance_amount = float(balance['balance'])
+                        if balance_amount > 0:
+                            ticker = f'KRW-{currency}'
+                            avg_price = float(balance.get('avg_buy_price', 0))
+                            actual_positions[ticker] = {
+                                'quantity': balance_amount,
+                                'avg_price': avg_price,
+                                'invested': balance_amount * avg_price if avg_price > 0 else 0,
+                                'entry_time': datetime.now(timezone.utc).isoformat()
+                            }
+                    
+                    # 포트폴리오 업데이트
+                    if not self.portfolio:
+                        initial_capital = actual_cash + sum(pos.get('invested', 0) for pos in actual_positions.values())
+                        self.portfolio = {
+                            'cash': actual_cash,
+                            'positions': actual_positions,
+                            'initial_capital': initial_capital if initial_capital > 0 else actual_cash
+                        }
                     else:
-                        print("⚠️  업비트 API 키가 없습니다. 시뮬레이션 모드로 전환합니다.")
-                        Config.TRADING_MODE = 'SIMULATION'
-                        initial_capital = 1000000
-                except Exception as e:
-                    print(f"⚠️  잔고 조회 실패: {e}. 시뮬레이션 모드로 전환합니다.")
+                        # 기존 포트폴리오가 있으면 실제 잔고로 업데이트
+                        self.portfolio['cash'] = actual_cash
+                        # 실제 보유 포지션과 병합
+                        for ticker, pos in actual_positions.items():
+                            self.portfolio['positions'][ticker] = pos
+                    
+                    print(f"💰 실제 잔고: {actual_cash:,.0f}원")
+                    if actual_positions:
+                        print(f"📦 실제 보유: {len(actual_positions)}개 종목")
+                else:
+                    print("⚠️  업비트 API 키가 없습니다. 시뮬레이션 모드로 전환합니다.")
                     Config.TRADING_MODE = 'SIMULATION'
-                    initial_capital = 1000000
-            else:
-                # SIMULATION 모드
-                initial_capital = 1000000
-            
-            self.portfolio = {
-                'cash': initial_capital,
-                'positions': {},
-                'initial_capital': initial_capital
-            }
+                    if not self.portfolio:
+                        self.portfolio = {
+                            'cash': 1000000,
+                            'positions': {},
+                            'initial_capital': 1000000
+                        }
+            except Exception as e:
+                print(f"⚠️  잔고 조회 실패: {e}. 시뮬레이션 모드로 전환합니다.")
+                Config.TRADING_MODE = 'SIMULATION'
+                if not self.portfolio:
+                    self.portfolio = {
+                        'cash': 1000000,
+                        'positions': {},
+                        'initial_capital': 1000000
+                    }
+        else:
+            # SIMULATION 모드
+            if not self.portfolio:
+                self.portfolio = {
+                    'cash': 1000000,
+                    'positions': {},
+                    'initial_capital': 1000000
+                }
     
     def run(self):
         """메인 실행"""
@@ -362,12 +418,18 @@ class TradingEngine:
             
             # 가격 데이터 가져오기
             ohlcv = UpbitAPI.get_ohlcv(ticker, 'day', 30)
-            if not ohlcv:
+            if not ohlcv or len(ohlcv) == 0:
                 print(f"  ❌ 데이터 없음")
                 continue
             
-            current_price = ohlcv[0]['trade_price']
-            change_24h = ohlcv[0].get('change_rate', 0) * 100
+            # OHLCV 데이터는 시간 역순 (최신이 첫 번째)
+            latest_candle = ohlcv[0] if isinstance(ohlcv, list) else ohlcv
+            current_price = latest_candle.get('trade_price', 0) or latest_candle.get('opening_price', 0)
+            if current_price == 0:
+                print(f"  ❌ 가격 데이터 없음")
+                continue
+            
+            change_24h = latest_candle.get('change_rate', 0) * 100 if latest_candle.get('change_rate') else 0
             
             # AI 분석
             analysis = AIAnalyzer.analyze(ticker, ohlcv)
@@ -392,8 +454,8 @@ class TradingEngine:
             print(f"  📊 신호: {signal_data['signal']} ({signal_data['confidence']}%)")
             print(f"  📝 이유: {signal_data['reason']}")
             
-            # 2. 매매 실행 (신뢰도 70% 이상)
-            if signal_data['confidence'] >= 70:
+            # 2. 매매 실행 (신뢰도 65% 이상 - 테스트용, 실제로는 70% 권장)
+            if signal_data['confidence'] >= 65:
                 self.execute_signal(signal_data)
         
         # 3. 보유 포지션 체크 (손절/익절)
@@ -603,18 +665,10 @@ class TradingEngine:
             print("  보유 포지션 없음")
             return
         
-        prices = UpbitAPI.get_all_prices(list(positions.keys()))
-        
+        # 각 포지션별로 현재가 조회
         for ticker, pos in list(positions.items()):
-            if ticker not in prices:
-                print(f"  ⚠️ {ticker}: 가격 정보 없음")
-                continue
-            
-            price_data = prices[ticker]
-            if isinstance(price_data, dict):
-                current_price = price_data.get('trade_price', 0)
-            else:
-                current_price = float(price_data) if price_data else 0
+            # 개별 가격 조회 (더 안정적)
+            current_price = UpbitAPI.get_current_price(ticker)
             
             if current_price == 0:
                 print(f"  ⚠️ {ticker}: 가격 조회 실패")
