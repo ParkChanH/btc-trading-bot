@@ -11,9 +11,20 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# 템플릿 경로 설정
-app.template_folder = Path(__file__).parent.parent / 'btc_analysis' / 'templates'
-app.static_folder = Path(__file__).parent.parent / 'btc_analysis' / 'templates'
+# 템플릿 경로 설정 (Render에서는 절대 경로 사용)
+try:
+    # btc_analysis/templates가 있으면 사용
+    template_path = Path(__file__).parent.parent / 'btc_analysis' / 'templates'
+    if template_path.exists():
+        app.template_folder = str(template_path)
+        app.static_folder = str(template_path)
+    else:
+        # 없으면 현재 디렉토리에서 찾기
+        app.template_folder = None
+        app.static_folder = None
+except:
+    app.template_folder = None
+    app.static_folder = None
 
 DATA_DIR = Path(__file__).parent.parent / 'data'
 
