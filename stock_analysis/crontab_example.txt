@@ -1,0 +1,21 @@
+# Cron Job Setup Examples
+
+# Stock Analysis System Automation
+# Copy these lines to your crontab (run: crontab -e)
+
+# Daily Data Collection (Monday-Friday at 15:30 after market close)
+30 15 * * 1-5 /Users/parkch/Documents/주식/stock_analysis/scripts/update_data.sh
+
+# Daily Analysis (Monday-Friday at 16:00)
+0 16 * * 1-5 /Users/parkch/Documents/주식/stock_analysis/scripts/run_analysis.sh
+
+# Log Cleanup (Daily at midnight - keep logs for 30 days)
+0 0 * * * find /Users/parkch/Documents/주식/stock_analysis/logs -name "*.log" -mtime +30 -delete
+
+# Weekly Backup (Every Sunday at 23:00)
+0 23 * * 0 tar -czf /Users/parkch/Documents/주식/stock_analysis_backup_$(date +\%Y\%m\%d).tar.gz -C /Users/parkch/Documents 주식/stock_analysis
+
+## Manual Testing Commands
+# Test data collection: ./scripts/update_data.sh
+# Test analysis: ./scripts/run_analysis.sh
+# View logs: tail -f logs/analysis.log

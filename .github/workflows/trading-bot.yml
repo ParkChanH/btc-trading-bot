@@ -84,4 +84,3 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "✅ 완료! 자세한 로그는 위를 확인하세요." >> $GITHUB_STEP_SUMMARY
-
