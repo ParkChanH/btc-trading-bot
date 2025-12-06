@@ -144,11 +144,17 @@ class UpbitAPI:
     def get_all_prices(tickers: list) -> dict:
         """여러 코인 현재가 한번에 조회"""
         try:
+            if not tickers:
+                return {}
             markets = ','.join(tickers)
             url = f"{UpbitAPI.BASE_URL}/ticker?markets={markets}"
             response = requests.get(url, timeout=10)
             data = response.json()
-            return {item['market']: item for item in data}
+            if isinstance(data, list):
+                return {item['market']: item for item in data}
+            elif isinstance(data, dict):
+                return {data.get('market', ''): data}
+            return {}
         except Exception as e:
             print(f"[ERROR] 가격 조회 실패: {e}")
         return {}
@@ -592,13 +598,27 @@ class TradingEngine:
         """보유 포지션 손절/익절 체크"""
         print(f"\n📋 포지션 체크...")
         
-        prices = UpbitAPI.get_all_prices(list(self.portfolio.get('positions', {}).keys()))
+        positions = self.portfolio.get('positions', {})
+        if not positions:
+            print("  보유 포지션 없음")
+            return
         
-        for ticker, pos in list(self.portfolio.get('positions', {}).items()):
+        prices = UpbitAPI.get_all_prices(list(positions.keys()))
+        
+        for ticker, pos in list(positions.items()):
             if ticker not in prices:
+                print(f"  ⚠️ {ticker}: 가격 정보 없음")
                 continue
             
-            current_price = prices[ticker]['trade_price']
+            price_data = prices[ticker]
+            if isinstance(price_data, dict):
+                current_price = price_data.get('trade_price', 0)
+            else:
+                current_price = float(price_data) if price_data else 0
+            
+            if current_price == 0:
+                print(f"  ⚠️ {ticker}: 가격 조회 실패")
+                continue
             profit_pct = ((current_price - pos['avg_price']) / pos['avg_price']) * 100
             
             print(f"  {ticker}: {profit_pct:+.2f}%")
