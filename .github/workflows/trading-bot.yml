@@ -1,9 +1,7 @@
 name: 🤖 BTC Trading Bot
 
 on:
-  # 스케줄 실행: 매 15분마다
-  schedule:
-    - cron: '*/15 * * * *'  # UTC 시간 기준 (한국시간 -9시간)
+
   
   # 수동 실행 가능
   workflow_dispatch:
